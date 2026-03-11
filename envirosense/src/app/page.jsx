@@ -143,10 +143,10 @@ function getRecommendation(sensorList) {
   }, "good");
 
   switch (worst) {
-    case "hazardous": return { text: "ðŸš¨ Hazardous conditions detected â€” seek clean air immediately.", color: "#ef4444" };
-    case "unhealthy": return { text: "âš ï¸ Some readings are elevated â€” consider limiting outdoor exposure.", color: "#f97316" };
-    case "moderate":  return { text: "ðŸŒ¤ Air quality is acceptable. Sensitive individuals should take caution.", color: "#eab308" };
-    default:          return { text: "âœ… Air quality is excellent â€” enjoy your environment!", color: "#22c55e" };
+    case "hazardous": return { text: "Hazardous conditions detected — seek clean air immediately.", color: "#ef4444" };
+    case "unhealthy": return { text: "Some readings are elevated — consider limiting outdoor exposure.", color: "#f97316" };
+    case "moderate":  return { text: "Air quality is acceptable. Sensitive individuals should take caution.", color: "#eab308" };
+    default:          return { text: "Air quality is excellent — enjoy your environment!", color: "#22c55e" };
   }
 }
 
