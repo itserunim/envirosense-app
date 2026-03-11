@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
+import mqtt from "mqtt";
 import { TbLeaf, TbWind, TbDroplet, TbCloud, TbThermometer, TbGauge } from "react-icons/tb";
 
 import Header          from "./components/Header";
@@ -16,8 +17,8 @@ const SENSORS = [
     unit: "ppm",
     icon: TbLeaf,
     decimals: 0,
-    displayRange: [400, 2000],   // gauge range
-    thresholds: [800, 1200, 2500], // good / moderate / unhealthy cutoffs
+    displayRange: [400, 5000],   // gauge range (Arduino validation: 400–5000)
+    thresholds: [800, 1500, 2500], // Arduino: <800 GOOD, <1500 MODERATE
   },
   {
     id: "co",
@@ -26,28 +27,28 @@ const SENSORS = [
     unit: "ppm",
     icon: TbWind,
     decimals: 1,
-    displayRange: [0, 15],
+    displayRange: [0, 1000],     // Arduino validation: 0–1000
     thresholds: [4.4, 9.4, 12.4],
   },
   {
     id: "voc",
     name: "VOC",
     subtitle: "Volatile Organics",
-    unit: "ppb",
+    unit: "ppm",
     icon: TbDroplet,
-    decimals: 0,
-    displayRange: [0, 600],
-    thresholds: [220, 660, 2200],
+    decimals: 1,
+    displayRange: [0, 100],      // Arduino MQ135 VOC: 0–100 ppm
+    thresholds: [1.0, 3.0, 10.0], // Arduino: <1.0 GOOD, <3.0 MODERATE
   },
   {
     id: "pm25",
     name: "PM2.5",
-    subtitle: "Fine Particles",
+    subtitle: "Dust Density",
     unit: "µg/m³",
     icon: TbCloud,
-    decimals: 1,
-    displayRange: [0, 60],
-    thresholds: [12, 35.4, 55.4],
+    decimals: 0,
+    displayRange: [0, 1050],     // Arduino GP2Y1014: 0–5000, POOR cutoff 1050
+    thresholds: [75, 150, 300],  // Arduino: <75 V.GOOD, <150 GOOD, <300 FAIR
   },
   {
     id: "temp",
@@ -56,8 +57,8 @@ const SENSORS = [
     unit: "°C",
     icon: TbThermometer,
     decimals: 1,
-    displayRange: [0, 50],
-    thresholds: [26, 32, 38],  // comfort / warm / hot
+    displayRange: [-40, 85],    // Arduino BMP280 validation: -40–85
+    thresholds: [26, 32, 38],   // comfort / warm / hot
   },
   {
     id: "pressure",
@@ -66,19 +67,30 @@ const SENSORS = [
     unit: "hPa",
     icon: TbGauge,
     decimals: 1,
-    displayRange: [970, 1050],
-    thresholds: [1025, 1040, 1050],
+    displayRange: [300, 1100],   // Arduino BMP280 validation: 300–1100
+    thresholds: [1013, 1025, 1050],
   },
 ];
 
-/* Realistic initial readings */
+/* Realistic initial readings (matching Arduino baseline) */
 const INITIAL_VALUES = {
-  co2:      412,
+  co2:      412,      // Arduino: MQ135 baseline ~400 + offset
   co:       0.8,
-  voc:      85,
-  pm25:     7.2,
-  temp:     24.5,
+  voc:      0.5,      // Arduino VOC in ppm (MQ135 averaged)
+  pm25:     50,       // Arduino GP2Y1014 dust density µg/m³
+  temp:     28.5,     // Philippines typical (BMP280)
   pressure: 1013.2,
+};
+
+// ==================== MQTT CONFIG ====================
+const MQTT_URL    = "wss://broker.hivemq.com:8884/mqtt";
+const MQTT_KEY_MAP = {
+  "envirosense/co2":         "co2",
+  "envirosense/co":          "co",
+  "envirosense/voc":         "voc",
+  "envirosense/dust":        "pm25",
+  "envirosense/temperature": "temp",
+  "envirosense/pressure":    "pressure",
 };
 
 /** Clamp-bounded random walk */
@@ -112,27 +124,31 @@ function toPercent(id, value) {
   return Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
 }
 
-/** Simplified composite AQI (EPA PM2.5 breakpoints + CO/VOC influence) */
-function calcAQI({ pm25, co, voc }) {
-  const pm25Aqi =
-    pm25 <= 12    ? (50  / 12)   * pm25
-    : pm25 <= 35.4 ? 50  + ((pm25 - 12)    / 23.4)  * 50
-    : pm25 <= 55.4 ? 100 + ((pm25 - 35.4)  / 20)    * 50
-    : pm25 <= 150.4? 150 + ((pm25 - 55.4)  / 95)    * 50
-    :                200 + ((pm25 - 150.4) / 100)   * 100;
+/** Composite AQI based on Arduino EnviroSense thresholds (CO2, VOC, Dust) */
+function calcAQI({ pm25, co2, voc }) {
+  // CO2-based (Arduino: <800 GOOD, <1500 MODERATE, else POOR)
+  const co2Aqi =
+    co2 <= 800  ? (50 / 800) * co2
+    : co2 <= 1500 ? 50  + ((co2 - 800)  / 700)  * 50
+    : co2 <= 2500 ? 100 + ((co2 - 1500) / 1000) * 50
+    :               150 + ((co2 - 2500) / 2500) * 150;
 
-  const coAqi =
-    co <= 4.4  ? (50 / 4.4) * co
-    : co <= 9.4  ? 50 + ((co - 4.4) / 5)   * 50
-    : co <= 12.4 ? 100 + ((co - 9.4) / 3)  * 50
-    :              150;
-
+  // VOC-based (Arduino: <1.0 GOOD, <3.0 MODERATE, else POOR)
   const vocAqi =
-    voc <= 220 ? (50 / 220) * voc
-    : voc <= 660 ? 50 + ((voc - 220) / 440) * 50
-    :              100;
+    voc <= 1.0 ? (50 / 1.0) * voc
+    : voc <= 3.0  ? 50  + ((voc - 1.0) / 2.0) * 50
+    : voc <= 10.0 ? 100 + ((voc - 3.0) / 7.0) * 50
+    :               150 + ((voc - 10)  / 90)  * 150;
 
-  return Math.round(Math.max(pm25Aqi, coAqi * 0.6, vocAqi * 0.4));
+  // Dust-based (Arduino: <75 V.GOOD, <150 GOOD, <300 FAIR, <1050 POOR)
+  const dustAqi =
+    pm25 <= 75   ? (50 / 75) * pm25
+    : pm25 <= 150  ? 50  + ((pm25 - 75)  / 75)  * 50
+    : pm25 <= 300  ? 100 + ((pm25 - 150) / 150) * 50
+    : pm25 <= 1050 ? 150 + ((pm25 - 300) / 750) * 50
+    :                200 + ((pm25 - 1050) / 1000) * 100;
+
+  return Math.round(Math.max(co2Aqi, vocAqi, dustAqi));
 }
 
 /** Derive a health recommendation message from the worst sensor status */
@@ -158,27 +174,89 @@ function formatUptime(secs) {
 }
 
 export default function Home() {
-  const [values,      setValues]      = useState(INITIAL_VALUES);
-  const [trends,      setTrends]      = useState(
+  const [values,       setValues]       = useState(INITIAL_VALUES);
+  const [trends,       setTrends]       = useState(
     Object.fromEntries(Object.keys(INITIAL_VALUES).map((k) => [k, "stable"]))
   );
-  const [lastUpdated, setLastUpdated] = useState("just now");
-  const [uptimeSecs,  setUptimeSecs]  = useState(0);
-  const prevRef = useRef(INITIAL_VALUES);
+  const [lastUpdated,  setLastUpdated]  = useState("just now");
+  const [uptimeSecs,   setUptimeSecs]   = useState(0);
+  const [mqttStatus,   setMqttStatus]   = useState("connecting"); // "connecting" | "live" | "offline"
+  const prevRef        = useRef(INITIAL_VALUES);
+  const mqttLiveRef    = useRef(false); // true while MQTT is delivering data
 
-  /* Live data simulation */
+  /* ── MQTT real-time sync ── */
+  useEffect(() => {
+    const client = mqtt.connect(MQTT_URL, {
+      clientId:        `envirosense-web-${Math.random().toString(16).slice(2, 10)}`,
+      clean:           true,
+      reconnectPeriod: 5000,
+      connectTimeout:  10000,
+    });
+
+    client.on("connect", () => {
+      mqttLiveRef.current = true;
+      setMqttStatus("live");
+      Object.keys(MQTT_KEY_MAP).forEach((t) => client.subscribe(t));
+      client.subscribe("envirosense/heartbeat");
+    });
+
+    client.on("reconnect",   () => { mqttLiveRef.current = false; setMqttStatus("connecting"); });
+    client.on("disconnect",  () => { mqttLiveRef.current = false; setMqttStatus("offline");    });
+    client.on("error",       () => { mqttLiveRef.current = false; setMqttStatus("offline");    });
+
+    client.on("message", (topic, message) => {
+      const payload = message.toString();
+
+      /* Heartbeat → real device uptime */
+      if (topic === "envirosense/heartbeat") {
+        try {
+          const hb = JSON.parse(payload);
+          if (hb.uptime !== undefined) setUptimeSecs(Number(hb.uptime));
+        } catch (_) {}
+        return;
+      }
+
+      const key = MQTT_KEY_MAP[topic];
+      if (!key) return;
+      const val = parseFloat(payload);
+      if (isNaN(val)) return;
+
+      /* Update value */
+      setValues((prev) => ({ ...prev, [key]: val }));
+
+      /* Update trend for this key */
+      setTrends((prev) => {
+        const oldVal    = prevRef.current[key] ?? val;
+        const d         = val - oldVal;
+        const threshold = Math.abs(oldVal || 1) * 0.008;
+        const trend     = Math.abs(d) < threshold ? "stable" : d > 0 ? "up" : "down";
+        return { ...prev, [key]: trend };
+      });
+
+      prevRef.current = { ...prevRef.current, [key]: val };
+
+      const now = new Date();
+      setLastUpdated(
+        now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      );
+    });
+
+    return () => client.end(true);
+  }, []);
+
+  /* ── Simulation fallback (paused while MQTT is live) ── */
   useEffect(() => {
     const id = setInterval(() => {
+      if (mqttLiveRef.current) return; // MQTT is active — skip simulation
       setValues((prev) => {
         const next = {
-          co2:      walk(prev.co2,      18,  350, 1800),
-          co:       walk(prev.co,       0.12, 0,  12),
-          voc:      walk(prev.voc,       7,   0,  500),
-          pm25:     walk(prev.pm25,     0.7,  0,  55),
-          temp:     walk(prev.temp,     0.15, 10, 42),
-          pressure: walk(prev.pressure, 0.25, 975, 1045),
+          co2:      walk(prev.co2,      18,   400,  2000),
+          co:       walk(prev.co,       0.12, 0,    15),
+          voc:      walk(prev.voc,      0.05, 0,    10),
+          pm25:     walk(prev.pm25,     5,    0,    600),
+          temp:     walk(prev.temp,     0.15, 20,   40),
+          pressure: walk(prev.pressure, 0.25, 990,  1030),
         };
-
         const newTrends = {};
         for (const k of Object.keys(next)) {
           const d = next[k] - prev[k];
@@ -187,22 +265,22 @@ export default function Home() {
         }
         setTrends(newTrends);
         prevRef.current = prev;
-
         const now = new Date();
         setLastUpdated(
           now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
         );
-
         return next;
       });
-    }, 3000);
-
+    }, 2000);
     return () => clearInterval(id);
   }, []);
 
-  /* Uptime counter */
+  /* ── Uptime counter (runs only when MQTT heartbeat not supplying it) ── */
   useEffect(() => {
-    const id = setInterval(() => setUptimeSecs((s) => s + 1), 1000);
+    const id = setInterval(() => {
+      if (mqttLiveRef.current) return;
+      setUptimeSecs((s) => s + 1);
+    }, 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -223,13 +301,13 @@ export default function Home() {
     <div style={{ background: "var(--neu-bg)", minHeight: "100vh", paddingBottom: "1.5rem" }}>
 
       {/* Header */}
-      <Header battery={78} connected />
+      <Header battery={78} connected={mqttStatus === "live"} />
 
       {/* Device status bar */}
       <DeviceStatusBar
-        location="Outdoor"
+        location={mqttStatus === "live" ? "Live Device" : "Simulation"}
         uptime={formatUptime(uptimeSecs)}
-        syncing={false}
+        syncing={mqttStatus === "connecting"}
       />
 
       {/* AQI overview */}
@@ -275,10 +353,13 @@ export default function Home() {
           style={{ borderRadius: 14 }}
         >
           <p className="text-[11px] font-semibold" style={{ color: "#9aafc7" }}>
-            EnviroSense v1.0
+            EnviroSense v1.0 &middot;
+            <span style={{ color: mqttStatus === "live" ? "#22c55e" : mqttStatus === "connecting" ? "#eab308" : "#a3b1c6" }}>
+              {mqttStatus === "live" ? " MQTT Live" : mqttStatus === "connecting" ? " MQTT Connecting…" : " Simulation"}
+            </span>
           </p>
           <p className="text-[10px]" style={{ color: "#b0bec5" }}>
-            Readings update every 3s &middot; {lastUpdated}
+            Readings update every 2s &middot; {lastUpdated}
           </p>
         </div>
       </div>
