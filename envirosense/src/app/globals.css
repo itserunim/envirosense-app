@@ -1,26 +1,131 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════
+   EnviroSense — Neumorphism Design System
+   ═══════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ─── Neumorphism Palette ─── */
+  --neu-bg:         #e0e5ec;
+  --neu-dark:       #a3b1c6;
+  --neu-light:      #ffffff;
+
+  /* ─── Typography ─── */
+  --neu-text:       #31456a;
+  --neu-text-soft:  #6b7fa3;
+  --neu-text-muted: #9aafc7;
+
+  /* ─── Accent ─── */
+  --neu-accent:     #5b7ec9;
+
+  /* ─── Status Colors ─── */
+  --c-good:         #22c55e;
+  --c-moderate:     #eab308;
+  --c-unhealthy:    #f97316;
+  --c-hazardous:    #ef4444;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+*, *::before, *::after { box-sizing: border-box; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html { scroll-behavior: smooth; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--neu-bg);
+  color: var(--neu-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ════════════════════════════════════════════════════
+   Neumorphic Shape Utilities
+   ════════════════════════════════════════════════════ */
+
+/* Raised (floating) */
+.neu-raised {
+  background: var(--neu-bg);
+  box-shadow:
+    8px 8px 16px var(--neu-dark),
+    -8px -8px 16px var(--neu-light);
+  border-radius: 20px;
+}
+
+.neu-raised-sm {
+  background: var(--neu-bg);
+  box-shadow:
+    4px 4px 9px var(--neu-dark),
+    -4px -4px 9px var(--neu-light);
+  border-radius: 14px;
+}
+
+.neu-raised-circle {
+  background: var(--neu-bg);
+  box-shadow:
+    5px 5px 10px var(--neu-dark),
+    -5px -5px 10px var(--neu-light);
+  border-radius: 50%;
+}
+
+/* Pressed (inset / concave) */
+.neu-pressed {
+  background: var(--neu-bg);
+  box-shadow:
+    inset 5px 5px 12px var(--neu-dark),
+    inset -5px -5px 12px var(--neu-light);
+  border-radius: 18px;
+}
+
+.neu-pressed-sm {
+  background: var(--neu-bg);
+  box-shadow:
+    inset 3px 3px 7px var(--neu-dark),
+    inset -3px -3px 7px var(--neu-light);
+  border-radius: 10px;
+}
+
+.neu-pressed-circle {
+  background: var(--neu-bg);
+  box-shadow:
+    inset 4px 4px 10px var(--neu-dark),
+    inset -4px -4px 10px var(--neu-light);
+  border-radius: 50%;
+}
+
+/* ════════════════════════════════════════════════════
+   Status Color Helpers
+   ════════════════════════════════════════════════════ */
+.c-good      { color: var(--c-good); }
+.c-moderate  { color: var(--c-moderate); }
+.c-unhealthy { color: var(--c-unhealthy); }
+.c-hazardous { color: var(--c-hazardous); }
+
+/* ════════════════════════════════════════════════════
+   Animations
+   ════════════════════════════════════════════════════ */
+
+/* Pulsing live dot */
+@keyframes blink {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.4; transform: scale(0.85); }
+}
+.animate-blink { animation: blink 2s ease-in-out infinite; }
+
+/* Card entrance */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.animate-fadeUp { animation: fadeUp 0.45s ease forwards; }
+
+/* Spin (used for refresh icon) */
+@keyframes spin { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin 1.2s linear infinite; }
+
+/* ════════════════════════════════════════════════════
+   Scrollbar
+   ════════════════════════════════════════════════════ */
+::-webkit-scrollbar            { width: 4px; }
+::-webkit-scrollbar-track      { background: var(--neu-bg); }
+::-webkit-scrollbar-thumb      { background: var(--neu-dark); border-radius: 2px; }
