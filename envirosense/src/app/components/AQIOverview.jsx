@@ -10,15 +10,16 @@ const AQI_LEVELS = [
 ];
 
 function getLevel(aqi) {
+  if (aqi === null) return { label: "Offline", color: "#9aafc7", desc: "Device is offline — waiting for connection..." };
   return AQI_LEVELS.find((l) => aqi <= l.max) ?? AQI_LEVELS[AQI_LEVELS.length - 1];
 }
 
 /**
  * AQIOverview — large card showing the composite Air Quality Index
  */
-export default function AQIOverview({ aqi = 42, lastUpdated = "" }) {
+export default function AQIOverview({ aqi = null, lastUpdated = "", isOffline = false }) {
   const level      = getLevel(aqi);
-  const percentage = Math.min(100, (aqi / 300) * 100);
+  const percentage = aqi ? Math.min(100, (aqi / 300) * 100) : 0;
 
   /* Scale-bar gradient blends from green to the current status color */
   const scaleGradient = `linear-gradient(90deg, #22c55e 0%, ${level.color} 100%)`;
@@ -38,7 +39,7 @@ export default function AQIOverview({ aqi = 42, lastUpdated = "" }) {
               className="font-black tabular-nums"
               style={{ fontSize: "2rem", color: "#31456a", lineHeight: 1 }}
             >
-              {aqi}
+              {aqi !== null ? aqi : "--"}
             </span>
             <span
               className="font-bold uppercase tracking-widest"
@@ -67,24 +68,22 @@ export default function AQIOverview({ aqi = 42, lastUpdated = "" }) {
           {level.desc}
         </p>
 
-        {/* Scale bar */}
-        <div>
-          <div className="neu-pressed-sm h-3 overflow-hidden" style={{ borderRadius: 6 }}>
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${percentage}%`,
-                background: scaleGradient,
-                boxShadow: `0 0 8px ${level.color}88`,
-                transition: "width 0.9s cubic-bezier(0.4,0,0.2,1)",
-              }}
-            />
+        {/* Scale bar - only show if online */}
+        {!isOffline && (
+          <div>
+            <div className="neu-pressed-sm h-3 overflow-hidden" style={{ borderRadius: 6 }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${percentage}%`,
+                  background: scaleGradient,
+                  boxShadow: `0 0 8px ${level.color}88`,
+                  transition: "width 0.9s cubic-bezier(0.4,0,0.2,1)",
+                }}
+              />
+            </div>
           </div>
-          <div className="flex justify-between mt-1">
-            <span className="text-[10px]" style={{ color: "#9aafc7" }}>0 · Good</span>
-            <span className="text-[10px]" style={{ color: "#9aafc7" }}>300 · Haz.</span>
-          </div>
-        </div>
+        )}
 
         {lastUpdated && (
           <p className="text-[10px]" style={{ color: "#b0bec5" }}>

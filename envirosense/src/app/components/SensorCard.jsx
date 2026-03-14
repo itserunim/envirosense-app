@@ -6,6 +6,7 @@ const STATUS_CFG = {
   moderate:  { label: "Moderate", color: "#eab308", bg: "rgba(234,179,8,0.13)"  },
   unhealthy: { label: "Caution",  color: "#f97316", bg: "rgba(249,115,22,0.13)" },
   hazardous: { label: "Danger",   color: "#ef4444", bg: "rgba(239,68,68,0.13)"  },
+  offline:   { label: "Offline",  color: "#9aafc7", bg: "rgba(163,177,198,0.13)" },
 };
 
 const TREND_SYMBOL = { up: "↑", down: "↓", stable: "→" };
@@ -28,10 +29,11 @@ export default function SensorCard({ sensor, style = {} }) {
     decimals = 0,
   } = sensor;
 
-  const cfg          = STATUS_CFG[status] ?? STATUS_CFG.good;
-  const displayValue = typeof value === "number" ? value.toFixed(decimals) : String(value);
+  const cfg          = STATUS_CFG[status] ?? STATUS_CFG.offline;
+  const isOffline    = value === "N/A";
+  const displayValue = isOffline ? "—" : typeof value === "number" ? value.toFixed(decimals) : String(value);
 
-  /* Shrink font for long values (e.g. "1013.2") */
+  /* Shrink font for long values */
   const valueFontSize = displayValue.length > 4 ? "0.75rem" : "1rem";
 
   return (
@@ -65,25 +67,41 @@ export default function SensorCard({ sensor, style = {} }) {
         >
           {/* SVG gauge sits inside the well */}
           <div className="relative flex items-center justify-center" style={{ width: 100, height: 100 }}>
-            <GaugeRing percentage={percentage} color={cfg.color} size={100} strokeWidth={9} />
-
-            {/* Centered value overlay */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
-              <span
-                className="font-bold tabular-nums"
-                style={{ fontSize: valueFontSize, color: "#31456a" }}
-              >
-                {displayValue}
-              </span>
-              <span className="text-[10px] font-medium" style={{ color: "#9aafc7" }}>
-                {unit}
-              </span>
-            </div>
+            {!isOffline ? (
+              <>
+                <GaugeRing percentage={percentage} color={cfg.color} size={100} strokeWidth={9} />
+                {/* Centered value overlay */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center leading-tight">
+                  <span
+                    className="font-bold tabular-nums"
+                    style={{ fontSize: valueFontSize, color: "#31456a" }}
+                  >
+                    {displayValue}
+                  </span>
+                  <span className="text-[10px] font-medium" style={{ color: "#9aafc7" }}>
+                    {unit}
+                  </span>
+                </div>
+              </>
+            ) : (
+              // Offline state - show just the value without gauge
+              <div className="flex flex-col items-center justify-center">
+                <span
+                  className="font-bold tabular-nums"
+                  style={{ fontSize: "1.5rem", color: "#9aafc7" }}
+                >
+                  {displayValue}
+                </span>
+                <span className="text-[10px] font-medium" style={{ color: "#9aafc7" }}>
+                  {unit}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ── Row: name + trend ── */}
+      {/* ── Row: name + trend (only show trend if online) ── */}
       <div className="flex items-end justify-between gap-1">
         <div className="min-w-0">
           <p className="text-sm font-semibold leading-tight truncate" style={{ color: "#31456a" }}>
@@ -93,13 +111,15 @@ export default function SensorCard({ sensor, style = {} }) {
             {subtitle}
           </p>
         </div>
-        <span
-          className="text-base font-bold flex-shrink-0"
-          style={{ color: TREND_COLOR[trend] ?? "#9aafc7" }}
-          aria-label={trend}
-        >
-          {TREND_SYMBOL[trend] ?? "→"}
-        </span>
+        {!isOffline && (
+          <span
+            className="text-base font-bold flex-shrink-0"
+            style={{ color: TREND_COLOR[trend] ?? "#9aafc7" }}
+            aria-label={trend}
+          >
+            {TREND_SYMBOL[trend] ?? "→"}
+          </span>
+        )}
       </div>
     </div>
   );
