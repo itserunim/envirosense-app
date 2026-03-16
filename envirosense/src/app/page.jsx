@@ -1,12 +1,13 @@
 ﻿"use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { TbLeaf, TbWind, TbDroplet, TbCloud, TbThermometer, TbGauge } from "react-icons/tb";
 
 import Header from "./components/Header";
 import DeviceStatusBar from "./components/DeviceStatusBar";
 import AQIOverview from "./components/AQIOverview";
 import SensorCard from "./components/SensorCard";
+import { useMqtt } from "../../hooks/useMqtt"; // adjust the import path if needed
 
 const SENSORS = [
   {
@@ -177,136 +178,32 @@ function formatUptime(secs) {
 }
 
 export default function Home() {
-  const [values, setValues] = useState(INITIAL_VALUES);
-  const [trends, setTrends] = useState({});
+  // Use the MQTT hook instead of manual polling
+  const { connected, deviceStatus, sensorValues, wakeDisplay } = useMqtt();
   const [lastUpdated, setLastUpdated] = useState("—");
-  const [uptimeSecs, setUptimeSecs] = useState(0);
-  const [deviceStatus, setDeviceStatus] = useState("offline");
-  const [isWaking, setIsWaking] = useState(false);
-  
-  const pollingRef = useRef(null);
-  const sensorPollingRef = useRef(null);
 
-  // Fetch device status from API
-  const fetchDeviceStatus = useCallback(async () => {
-    try {
-      const response = await fetch('/api/envirosense?action=status');
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        const newStatus = data.data.online ? "online" : "offline";
-        setDeviceStatus(newStatus);
-        if (data.data.uptime) setUptimeSecs(data.data.uptime);
-        
-        // If device goes offline, clear values to N/A
-        if (!data.data.online) {
-          setValues(INITIAL_VALUES);
-          setLastUpdated("—");
-        }
-      } else {
-        setDeviceStatus("offline");
-        setValues(INITIAL_VALUES);
-        setLastUpdated("—");
-      }
-    } catch (error) {
-      console.error('Failed to fetch device status:', error);
-      setDeviceStatus("offline");
-      setValues(INITIAL_VALUES);
-      setLastUpdated("—");
-    }
-  }, []);
-
-  // Fetch sensor data from API (every 3 seconds when online)
-  const fetchSensorData = useCallback(async () => {
-    if (deviceStatus !== "online") return;
-    
-    try {
-      const response = await fetch('/api/envirosense?action=sensors');
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        setValues(prev => {
-          // Calculate trends only if we have valid numbers
-          const newTrends = {};
-          Object.keys(data.data).forEach(key => {
-            if (typeof prev[key] === 'number' && typeof data.data[key] === 'number') {
-              const diff = data.data[key] - prev[key];
-              const threshold = Math.abs(prev[key] || 1) * 0.008;
-              newTrends[key] = Math.abs(diff) < threshold ? "stable" : diff > 0 ? "up" : "down";
-            }
-          });
-          setTrends(newTrends);
-          
-          return { ...prev, ...data.data };
-        });
-        
-        const now = new Date();
-        setLastUpdated(
-          now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-        );
-      }
-    } catch (error) {
-      console.error('Failed to fetch sensor data:', error);
-    }
-  }, [deviceStatus]);
-
-  // Wake display
-  const wakeDisplay = useCallback(async (sensorId = null) => {
-    if (deviceStatus !== "online") return;
-    
-    setIsWaking(true);
-    
-    try {
-      await fetch('/api/envirosense', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: 'wakeDisplay',
-          sensorId: sensorId
-        })
-      });
-      
-      setTimeout(() => setIsWaking(false), 500);
-    } catch (error) {
-      console.error('Failed to wake display:', error);
-      setIsWaking(false);
-    }
-  }, [deviceStatus]);
-
-  // Initial setup and polling
+  // Update timestamp whenever sensor values change
   useEffect(() => {
-    fetchDeviceStatus();
-    pollingRef.current = setInterval(fetchDeviceStatus, 10000);
-    
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      if (sensorPollingRef.current) clearInterval(sensorPollingRef.current);
-    };
-  }, [fetchDeviceStatus]);
+    const now = new Date();
+    setLastUpdated(
+      now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    );
+  }, [sensorValues]);
 
-  // Handle sensor polling
-  useEffect(() => {
-    if (sensorPollingRef.current) clearInterval(sensorPollingRef.current);
+  // Derive uptime from deviceStatus (or fallback to 0)
+  const uptimeSecs = deviceStatus.uptime || 0;
 
-    if (deviceStatus === "online") {
-      // Online mode - fetch real data every 3 seconds
-      fetchSensorData();
-      sensorPollingRef.current = setInterval(fetchSensorData, 3000);
-    } else {
-      // Offline mode - ensure values are N/A
-      setValues(INITIAL_VALUES);
-      setLastUpdated("—");
-    }
-  }, [deviceStatus, fetchSensorData]);
-
-  const aqi = calcAQI(values);
+  // Derive AQI from current sensor values
+  const aqi = calcAQI(sensorValues);
   
+  // Enrich sensors with current values, percentages, and statuses
   const enrichedSensors = SENSORS.map(cfg => ({
     ...cfg,
-    value: values[cfg.id],
-    percentage: toPercent(cfg.id, values[cfg.id]),
-    status: getStatus(cfg.id, values[cfg.id]),
-    trend: trends[cfg.id] || "stable",
+    value: sensorValues[cfg.id],
+    percentage: toPercent(cfg.id, sensorValues[cfg.id]),
+    status: getStatus(cfg.id, sensorValues[cfg.id]),
+    // trend calculation can be added later if desired
+    trend: "stable",
   }));
 
   const recommendation = getRecommendation(enrichedSensors);
@@ -314,13 +211,13 @@ export default function Home() {
   return (
     <div style={{ background: "var(--neu-bg)", minHeight: "100vh", paddingBottom: "1.5rem" }}>
       
-      {/* Header */}
-      <Header connected={deviceStatus === "online"} />
+      {/* Header – connected prop only, battery removed */}
+      <Header connected={connected} />
 
       {/* Device status bar */}
       <DeviceStatusBar
         location="Indoor"
-        isOnline={deviceStatus === "online"}
+        isOnline={connected}
         syncing={false}
         uptime={formatUptime(uptimeSecs)}
       />
@@ -329,7 +226,7 @@ export default function Home() {
       <AQIOverview 
         aqi={aqi} 
         lastUpdated={lastUpdated}
-        isOffline={deviceStatus !== "online"}
+        isOffline={!connected}
       />
 
       {/* Recommendation banner */}
@@ -344,7 +241,7 @@ export default function Home() {
       {/* Section heading */}
       <div className="px-4 mt-5 mb-3">
         <h2 className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "#9aafc7" }}>
-          Sensor Readings {deviceStatus === "online" ? "(Click to wake OLED)" : "(Offline)"}
+          Sensor Readings {connected ? "(Click to wake OLED)" : "(Offline)"}
         </h2>
       </div>
 
@@ -353,8 +250,8 @@ export default function Home() {
         {enrichedSensors.map((sensor, i) => (
           <div
             key={sensor.id}
-            onClick={() => deviceStatus === "online" && wakeDisplay(sensor.id)}
-            className={deviceStatus === "online" ? "cursor-pointer hover:scale-105 transition-transform" : ""}
+            onClick={() => connected && wakeDisplay(sensor.id)}
+            className={connected ? "cursor-pointer hover:scale-105 transition-transform" : ""}
           >
             <SensorCard
               sensor={sensor}
@@ -370,13 +267,13 @@ export default function Home() {
           <p className="text-[11px] font-semibold" style={{ color: "#9aafc7" }}>
             EnviroSense v1.0 &middot;
             <span style={{ 
-              color: deviceStatus === "online" ? "#22c55e" : "#a3b1c6" 
+              color: connected ? "#22c55e" : "#a3b1c6" 
             }}>
-              {deviceStatus === "online" ? " ESP32-C3 Online" : " Offline"}
+              {connected ? " ESP32-C3 Online" : " Offline"}
             </span>
           </p>
           <p className="text-[10px]" style={{ color: "#b0bec5" }}>
-            {deviceStatus === "online" ? "Live data" : "No data"} &middot; updates every 3s &middot; {lastUpdated}
+            {connected ? "Live data" : "No data"} &middot; real‑time via MQTT &middot; {lastUpdated}
           </p>
         </div>
       </div>
