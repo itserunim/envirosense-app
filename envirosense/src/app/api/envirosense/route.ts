@@ -46,7 +46,7 @@ function initMQTT() {
 
     mqttClient.on('message', (topic: string, message: Buffer) => {
       const payload = message.toString();
-      
+
       // Update device status from heartbeat
       if (topic === 'envirosense/heartbeat') {
         try {
@@ -64,7 +64,7 @@ function initMQTT() {
           console.error('Failed to parse heartbeat:', e);
         }
       }
-      
+
       // Update sensor values (aligned with Arduino topics)
       const topicMap: Record<string, string> = {
         'envirosense/co2': 'co2',
@@ -74,14 +74,16 @@ function initMQTT() {
         'envirosense/temperature': 'temp',
         'envirosense/pressure': 'pressure'
       };
-      
-      if (topicMap[topic]) {
-        const value = parseFloat(payload);
-        if (!isNaN(value)) {
-          lastSensorValues = {
-            ...lastSensorValues,
-            [topicMap[topic]]: value
-          };
+
+      const sensorKey = topicMap[topic];
+      if (sensorKey) {
+        try {
+          const data = JSON.parse(payload);
+          if (data && typeof data.value === 'number') {
+            lastSensorValues[sensorKey] = data.value;
+          }
+        } catch (e) {
+          console.error('Failed to parse sensor JSON', e);
         }
       }
     });
@@ -112,7 +114,7 @@ export async function GET(request: Request) {
     if (deviceStatus.lastHeartbeat && Date.now() - deviceStatus.lastHeartbeat > 30000) {
       deviceStatus.online = false;
     }
-    
+
     return NextResponse.json({
       success: true,
       data: deviceStatus
@@ -127,9 +129,9 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({ 
-    success: false, 
-    error: 'Invalid action' 
+  return NextResponse.json({
+    success: false,
+    error: 'Invalid action'
   });
 }
 
@@ -139,37 +141,37 @@ export async function POST(request: Request) {
     const { action, sensorId } = body;
 
     if (!mqttClient) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'MQTT not connected' 
+      return NextResponse.json({
+        success: false,
+        error: 'MQTT not connected'
       });
     }
 
     // Wake up OLED and show specific sensor
     if (action === 'wakeDisplay') {
-      const command = { 
-        action: 'wake', 
+      const command = {
+        action: 'wake',
         sensor: sensorId || 'all',
         screen: sensorId ? getScreenIndex(sensorId) : -1,
-        timestamp: Date.now() 
+        timestamp: Date.now()
       };
-      
+
       mqttClient.publish('envirosense/display/command', JSON.stringify(command));
-      
+
       return NextResponse.json({
         success: true,
         message: `Display wake command sent${sensorId ? ` for ${sensorId}` : ''}`
       });
     }
 
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Invalid action' 
+    return NextResponse.json({
+      success: false,
+      error: 'Invalid action'
     });
   } catch (error) {
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Invalid request body' 
+    return NextResponse.json({
+      success: false,
+      error: 'Invalid request body'
     });
   }
 }

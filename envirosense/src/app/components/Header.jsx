@@ -77,7 +77,6 @@ export default function Header({ battery = 78, connected = true }) {
           aria-label={`Battery ${battery}%`}
         >
           <BatteryIcon level={battery} />
-          <span className="text-[11px] font-medium tabular-nums">{battery}%</span>
         </div>
       </div>
     </header>

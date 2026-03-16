@@ -315,7 +315,7 @@ export default function Home() {
     <div style={{ background: "var(--neu-bg)", minHeight: "100vh", paddingBottom: "1.5rem" }}>
       
       {/* Header */}
-      <Header battery={78} connected={deviceStatus === "online"} />
+      <Header connected={deviceStatus === "online"} />
 
       {/* Device status bar */}
       <DeviceStatusBar
@@ -324,22 +324,6 @@ export default function Home() {
         syncing={false}
         uptime={formatUptime(uptimeSecs)}
       />
-
-      {/* Wake button - Only show when online */}
-      {deviceStatus === "online" && (
-        <div className="px-4 mt-2">
-          <button
-            onClick={() => wakeDisplay()}
-            className="w-full neu-pressed py-2 text-xs font-medium"
-            style={{ 
-              borderRadius: 10,
-              color: isWaking ? "#22c55e" : "#9aafc7"
-            }}
-          >
-            {isWaking ? "✨ Display Wake Command Sent" : "🔆 Wake Display"}
-          </button>
-        </div>
-      )}
 
       {/* AQI overview */}
       <AQIOverview 
