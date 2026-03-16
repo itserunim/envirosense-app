@@ -41,16 +41,6 @@ const SENSORS = [
     thresholds: [0.5, 1.0, 3.0],
   },
   {
-    id: "pm25",
-    name: "PM2.5",
-    subtitle: "Dust Density",
-    unit: "µg/m³",
-    icon: TbCloud,
-    decimals: 0,
-    displayRange: [0, 1050],
-    thresholds: [75, 150, 300],
-  },
-  {
     id: "temp",
     name: "Temperature",
     subtitle: "Ambient Temperature",
@@ -77,7 +67,6 @@ const INITIAL_VALUES = {
   co2: "N/A",
   co: "N/A",
   voc: "N/A",
-  pm25: "N/A",
   temp: "N/A",
   pressure: "N/A",
 };
@@ -122,8 +111,8 @@ function toPercent(id, value) {
 }
 
 /** Composite AQI based on Arduino EnviroSense thresholds */
-function calcAQI({ pm25, co2, voc }) {
-  if (pm25 === "N/A" || co2 === "N/A" || voc === "N/A") return null;
+function calcAQI({ co2, voc }) {
+  if (co2 === "N/A" || voc === "N/A") return null;
   
   const co2Aqi =
     co2 <= 800 ? (50 / 800) * co2
@@ -136,15 +125,6 @@ function calcAQI({ pm25, co2, voc }) {
     : voc <= 1.0 ? 50 + ((voc - 0.5) / 0.5) * 50
     : voc <= 3.0 ? 100 + ((voc - 1.0) / 2.0) * 50
     : 150 + ((voc - 3.0) / 97) * 150;
-
-  const pm25Aqi =
-    pm25 <= 75 ? (50 / 75) * pm25
-    : pm25 <= 150 ? 50 + ((pm25 - 75) / 75) * 50
-    : pm25 <= 300 ? 100 + ((pm25 - 150) / 150) * 50
-    : pm25 <= 1050 ? 150 + ((pm25 - 300) / 750) * 50
-    : 200 + ((pm25 - 1050) / 1000) * 100;
-
-  return Math.round(Math.max(co2Aqi, vocAqi, pm25Aqi));
 }
 
 /** Derive a health recommendation message from the worst sensor status */
